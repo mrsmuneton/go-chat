@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/websocket"
+	mgo "gopkg.in/mgo.v2"
 )
 
 var clients = make(map[*websocket.Conn]bool) // connected clients
@@ -34,12 +36,26 @@ func main() {
 	// Configure websocket route
 	http.HandleFunc("/ws", handleConnections)
 
+	session, err := mgo.Dial("127.0.0.1")
+	session.SetMode(mgo.Monotonic, true)
+	c := session.DB("chat").C("convos")
+
+	var results []Message
+
+	c.Find(nil).Sort("-timestamp").All(&results)
+	// whyno error handling Ray
+	fmt.Println("Results All: ", results)
+	for _, v := range results {
+		log.Printf("v.Message: %#+v\n", v.Message)
+	}
+
 	// Start listening for incoming chat messages
 	go handleMessages()
 
 	// Start the server on localhost port 8000 and log any errors
 	log.Println("http server started on :8000")
-	err := http.ListenAndServe(":8000", nil)
+	http.ListenAndServe(":8000", nil)
+	// whyno error handling Ray
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
@@ -57,6 +73,9 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 	// Register our new client
 	clients[ws] = true
+	session, err := mgo.Dial("127.0.0.1")
+	session.SetMode(mgo.Monotonic, true)
+	c := session.DB("chat").C("convos")
 
 	for {
 		var msg Message
@@ -67,9 +86,16 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 			delete(clients, ws)
 			break
 		}
+		if err != nil {
+			panic(err)
+		}
+
+		err = c.Insert(&Message{Email: msg.Email, Username: msg.Username, Message: msg.Message})
+
 		// Send the newly received message to the broadcast channel
 		broadcast <- msg
 	}
+	defer session.Close()
 }
 
 func handleMessages() {
