@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 
@@ -36,29 +35,17 @@ func main() {
 	// Configure websocket route
 	http.HandleFunc("/ws", handleConnections)
 
-	session, err := mgo.Dial("127.0.0.1")
-	session.SetMode(mgo.Monotonic, true)
-	c := session.DB("chat").C("convos")
-
-	var results []Message
-
-	c.Find(nil).Sort("-timestamp").All(&results)
-	// whyno error handling Ray
-	fmt.Println("Results All: ", results)
-	for _, v := range results {
-		log.Printf("v.Message: %#+v\n", v.Message)
-	}
-
 	// Start listening for incoming chat messages
 	go handleMessages()
 
 	// Start the server on localhost port 8000 and log any errors
 	log.Println("http server started on :8000")
-	http.ListenAndServe(":8000", nil)
-	// whyno error handling Ray
+	err := http.ListenAndServe(":8000", nil)
+	log.Println("after the server starts listening")
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
+
 }
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +60,11 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 	// Register our new client
 	clients[ws] = true
+
+	// Populate the messages from the db
+	go populateMessages()
+
+	// Connect to mongo db
 	session, err := mgo.Dial("127.0.0.1")
 	session.SetMode(mgo.Monotonic, true)
 	c := session.DB("chat").C("convos")
@@ -109,6 +101,38 @@ func handleMessages() {
 				log.Printf("error: %v", err)
 				client.Close()
 				delete(clients, client)
+			}
+		}
+	}
+}
+
+func populateMessages() {
+	// println("i am populateMessages")
+	// msg := Message{Email: "memail", Username: "username", Message: "This is my message to try"}
+	// broadcast <- msg
+	// println("after here")
+
+	session, err := mgo.Dial("127.0.0.1")
+	if err != nil {
+		log.Printf("err: %#+v\n", err)
+	}
+	session.SetMode(mgo.Monotonic, true)
+	c := session.DB("chat").C("convos")
+
+	var results []Message
+
+	c.Find(nil).Sort("-timestamp").All(&results)
+	// whyno error handling Ray
+	// fmt.Println("Results All: ", results)
+	for _, v := range results {
+		log.Printf("v.Message: %#+v\n", v.Message)
+		log.Println(len(clients))
+		for client := range clients {
+			log.Println("this is here")
+			err := client.WriteJSON(v)
+			if err != nil {
+				log.Printf("error: %v", err)
+				client.Close()
 			}
 		}
 	}
