@@ -11,6 +11,7 @@ import (
 
 var clients = make(map[*websocket.Conn]bool) // connected clients
 var broadcast = make(chan Message)           // broadcast channel
+var c = connectToMongo()                     // establish connection to mongo
 
 // Configure the upgrader
 var upgrader = websocket.Upgrader{
@@ -64,11 +65,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	// Populate the messages from the db
 	go populateMessages()
 
-	// Connect to mongo db
-	session, err := mgo.Dial("127.0.0.1")
-	session.SetMode(mgo.Monotonic, true)
-	c := session.DB("chat").C("convos")
-
 	for {
 		var msg Message
 		// Read in a new message as JSON and map it to a Message object
@@ -87,7 +83,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		// Send the newly received message to the broadcast channel
 		broadcast <- msg
 	}
-	defer session.Close()
 }
 
 func handleMessages() {
@@ -107,28 +102,16 @@ func handleMessages() {
 }
 
 func populateMessages() {
-	// println("i am populateMessages")
-	// msg := Message{Email: "memail", Username: "username", Message: "This is my message to try"}
-	// broadcast <- msg
-	// println("after here")
-
-	session, err := mgo.Dial("127.0.0.1")
-	if err != nil {
-		log.Printf("err: %#+v\n", err)
-	}
-	session.SetMode(mgo.Monotonic, true)
-	c := session.DB("chat").C("convos")
-
 	var results []Message
 
-	c.Find(nil).Sort("-timestamp").All(&results)
-	// whyno error handling Ray
-	// fmt.Println("Results All: ", results)
+	err := c.Find(nil).Sort("-timestamp").All(&results)
+	if err != nil {
+		log.Printf("error: %v", err)
+	}
+
 	for _, v := range results {
-		log.Printf("v.Message: %#+v\n", v.Message)
-		log.Println(len(clients))
+		log.Printf("v: %#+v\n", v)
 		for client := range clients {
-			log.Println("this is here")
 			err := client.WriteJSON(v)
 			if err != nil {
 				log.Printf("error: %v", err)
@@ -136,4 +119,18 @@ func populateMessages() {
 			}
 		}
 	}
+}
+
+func connectToMongo() *mgo.Collection {
+	session, err := mgo.Dial("127.0.0.1")
+	if err != nil {
+		log.Printf("err: %#+v\n", err)
+		panic(err)
+	}
+	session.SetMode(mgo.Monotonic, true)
+
+	// this really needs to be fixed ray
+	// defer session.Close()
+
+	return session.DB("chat").C("convos")
 }
