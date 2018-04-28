@@ -6,6 +6,9 @@ import (
 
 	"github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/websocket"
+
+	"google.golang.org/appengine"
+
 	mgo "gopkg.in/mgo.v2"
 )
 
@@ -28,6 +31,8 @@ type Message struct {
 }
 
 func main() {
+	appengine.Main() // Starts the server to receive requests
+
 	// Use binary asset FileServer
 	http.Handle("/",
 		http.FileServer(
